@@ -1,0 +1,131 @@
+hub:
+  baseUrl: /jupyterhub
+  resources:
+    requests:
+      cpu: 1000m # 0m - 1000m
+      memory: 4Gi # 200Mi - 4Gi
+  config:
+    Authenticator:
+      admin_users:
+        - avinash
+      allowed_users:
+        - dataengg
+        - analytics
+    DummyAuthenticator:
+      password: D@taSc!enc3
+    # GoogleOAuthenticator:
+    #   client_id: your-client-id.apps.googleusercontent.com
+    #   client_secret: your-client-secret
+    #   oauth_callback_url: https://your-jupyterhub-domain/hub/oauth_callback
+    #   hosted_domain:
+    #     - your-university.edu
+    #   login_service: Your university
+    JupyterHub:
+      authenticator_class: dummy # google
+  extraConfig:
+    preSpawnConfig: |
+      c.Spawner.cmd = ['start.sh','jupyterhub-singleuser', '--allow-root']
+      def notebook_dir_hook(spawner):
+        spawner.environment = {'NB_USER':spawner.user.name,'NB_UID':'1000'}
+      c.Spawner.pre_spawn_hook = notebook_dir_hook
+proxy:
+  chp: # proxy pod, running jupyterhub/configurable-http-proxy
+    resources:
+      requests:
+        cpu: 500m # 0m - 1000m
+        memory: 512Mi # 100Mi - 600Mi
+  traefik: # autohttps pod (optional, running traefik/traefik)
+    resources:
+      requests:
+        cpu: 500m # 0m - 1000m
+        memory: 512Mi # 100Mi - 1.1Gi
+  secretSync: # autohttps pod (optional, sidecar container running small Python script)
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+  # service relates to the proxy-public service
+  service:
+    type: LoadBalancer
+singleuser:
+  uid: 0
+  storage:
+    homeMountPath: /home/{username}
+  # storage:
+  #   type: none
+  #   extraVolumes:
+  #     - name: jupyterhub-shared
+  #       persistentVolumeClaim:
+  #         claimName: jupyterhub-shared-volume
+  #   extraVolumeMounts:
+  #     - name: jupyterhub-shared
+  #       mountPath: /home/shared
+  # image:
+  #   name: data-science/base-notebook
+  #   tag: python-3.9
+  profileList:
+    - display_name: "Python"
+      description: "Analytics & Machine Learning"
+      default: true
+      kubespawner_override:
+        image: avinashknmr/app/data-science/jupyterhub/base-notebook:python-3.9
+        service_account: prod-data-science
+    - display_name: "Spark"
+      description: "Big Data Analytics, Spark ML"
+      kubespawner_override:
+        image: avinashknmr/app/data-science/jupyterhub/spark-notebook:python-3.9
+        service_account: prod-data-science
+  memory:
+    limit: 16G
+    guarantee: 2G
+  cpu:
+    limit: 4
+    guarantee: 1
+  extraEnv:
+    CHOWN_HOME: 'yes'
+  extraFiles:
+    # jupyter_notebook_config reference: https://jupyter-notebook.readthedocs.io/en/stable/config.html
+    jupyter_notebook_config.json:
+      mountPath: /etc/jupyter/jupyter_notebook_config.json
+      # data is a YAML structure here but will be rendered to JSON file as our
+      # file extension is ".json".
+      data:
+        MappingKernelManager:
+          # cull_idle_timeout: timeout (in seconds) after which an idle kernel is
+          # considered ready to be culled
+          cull_idle_timeout: 1800 # 30 mins; default: 0
+
+          # cull_interval: the interval (in seconds) on which to check for idle
+          # kernels exceeding the cull timeout value
+          cull_interval: 120 # default: 300
+
+          # cull_connected: whether to consider culling kernels which have one
+          # or more connections
+          cull_connected: true # default: false
+
+          # cull_busy: whether to consider culling kernels which are currently
+          # busy running some code
+          cull_busy: false # default: false
+cull:
+  enabled: true
+
+scheduling:
+  userScheduler: # user-scheduler pods (optional, running kubernetes/kube-scheduler)
+    resources:
+      requests:
+        cpu: 30m # 8m - 45m
+        memory: 512Mi # 100Mi - 1.5Gi
+  userPlaceholder: # user-placeholder pods (optional, running pause container)
+    # This is just an override of the resource requests that otherwise match
+    # those configured in singleuser.cpu|memory.guarantee|limit.
+    resources: {}
+prePuller: # hook|continuous-image-puller pods (optional, running pause container)
+  resources:
+    requests:
+      cpu: 10m
+      memory: 8Mi
+  hook: # hook-image-awaiter pod (optional, running GoLang binary defined in images/image-awaiter)
+    resources:
+      requests:
+        cpu: 10m
+        memory: 8Mi
